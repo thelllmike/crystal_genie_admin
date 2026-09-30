@@ -49,7 +49,7 @@ export type Order = {
 export type Subscriber = {
   email: string | null;
   signed_up_at: string;
-  status: "trialing" | "active" | "past_due" | "canceled";
+  status: "trialing" | "active" | "past_due" | "canceled" | "none"; // none = subscriptions.sql not run
   trial_ends_at: string | null;
   current_period_end: string | null;
   cancel_at_period_end: boolean;

@@ -7,11 +7,12 @@ import { useLoad } from "@/lib/useLoad";
 
 const fetchSubscribers = async () => (check(await supabase.rpc("admin_subscribers")) as Subscriber[] | null) ?? [];
 
-type Kind = "paying" | "trial" | "expired";
+type Kind = "paying" | "trial" | "expired" | "untracked";
 type Filter = "all" | Kind;
 const DAY = 24 * 60 * 60 * 1000;
 
 function kindOf(s: Subscriber, now: number): Kind {
+  if (s.status === "none") return "untracked";
   if (s.status === "active" || s.status === "past_due") return "paying";
   if (s.status === "trialing" && s.trial_ends_at && new Date(s.trial_ends_at).getTime() > now) return "trial";
   return "expired";
@@ -19,6 +20,7 @@ function kindOf(s: Subscriber, now: number): Kind {
 
 function describe(s: Subscriber, now: number) {
   const kind = kindOf(s, now);
+  if (kind === "untracked") return { pill: <Pill color="gray">Not tracked</Pill>, label: "Not tracked", detail: "" };
   if (kind === "paying") {
     if (s.status === "past_due")
       return { pill: <Pill color="red">Payment failed</Pill>, label: "Payment failed", detail: `Period ends ${date(s.current_period_end)}` };
@@ -62,11 +64,21 @@ export default function SubscribersPage() {
   const [query, setQuery] = useState("");
   const [now] = useState(() => Date.now());
 
-  if (error) return <ErrorBox message={error} />;
+  if (error)
+    return (
+      <ErrorBox
+        message={
+          /relation "subscriptions"/.test(error)
+            ? `${error}. Run sql/users_details.sql in the Supabase SQL editor to list users before subscriptions are set up.`
+            : error
+        }
+      />
+    );
   if (!subs) return <Loading />;
 
   const count = (k: Kind) => subs.filter((s) => kindOf(s, now) === k).length;
   const hasDetails = subs.some((s) => s.scans !== undefined);
+  const untracked = subs.some((s) => s.status === "none");
   const q = query.trim().toLowerCase();
   const shown = subs.filter(
     (s) =>
@@ -122,6 +134,17 @@ export default function SubscribersPage() {
           className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm sm:ml-auto sm:w-64"
         />
       </div>
+
+      {untracked && (
+        <div className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">Free trials and subscriptions aren’t set up yet.</p>
+          <p className="mt-1">
+            The <code>subscriptions</code> table doesn’t exist, so nobody’s trial or payment is tracked and the app currently lets
+            everyone scan for free. Run <code>subscriptions.sql</code> in Supabase (and set <code>SUPABASE_SERVICE_KEY</code> on
+            the server) to turn it on.
+          </p>
+        </div>
+      )}
 
       {!hasDetails && subs.length > 0 && (
         <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
