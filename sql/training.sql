@@ -110,3 +110,9 @@ create policy "admins delete training images" on storage.objects
 insert into storage.buckets (id, name, public)
 values ('models', 'models', false)
 on conflict (id) do nothing;
+
+-- Admins may read them, so the Test page can try a run before it's deployed.
+drop policy if exists "admins read models" on storage.objects;
+create policy "admins read models" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'models' and public.is_admin());

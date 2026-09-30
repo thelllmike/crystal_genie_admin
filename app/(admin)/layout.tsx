@@ -13,6 +13,7 @@ const nav = [
   { href: "/crystals", label: "Crystals" },
   { href: "/dataset", label: "Dataset" },
   { href: "/training", label: "Training" },
+  { href: "/test", label: "Test model" },
 ];
 
 export default function AdminLayout({ children }: LayoutProps<"/">) {

@@ -108,7 +108,7 @@ export async function deleteImages(images: Pick<TrainingImage, "id">[]) {
  * Shrinks big phone photos before upload (classification trains at ~224px, so
  * 1024px is plenty) — keeps uploads fast and storage small.
  */
-async function shrink(file: File): Promise<Blob> {
+export async function shrink(file: File): Promise<Blob> {
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
@@ -137,4 +137,14 @@ export function explainSetup(message: string) {
   return /training_|stored_on|bucket|relation|function/i.test(message)
     ? `${message} — run sql/training.sql in the Supabase SQL editor first.`
     : message;
+}
+
+export type Prediction = { class_name: string; confidence: number };
+
+/** Top guesses for one photo from the live model, or from a training run's model. */
+export async function testModel(file: File, jobId: number | null): Promise<{ model: string; predictions: Prediction[] }> {
+  const form = new FormData();
+  form.append("file", await shrink(file), file.name);
+  if (jobId != null) form.append("job_id", String(jobId));
+  return api("/admin/test-model", form);
 }

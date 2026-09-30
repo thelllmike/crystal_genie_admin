@@ -209,6 +209,11 @@ export default function TrainingPage() {
                       Accuracy <b>{pct(j.metrics?.top1)}</b> <span className="text-neutral-500">(top-5 {pct(j.metrics?.top5)})</span>
                     </span>
                   )}
+                  {j.status === "succeeded" && (
+                    <Link href={`/test?model=${j.id}`}>
+                      <Button variant="ghost">Test</Button>
+                    </Link>
+                  )}
                   {j.status === "succeeded" && !isLive && <Button onClick={() => deploy(j)}>Deploy to app</Button>}
                   {(j.status === "queued" || j.status === "running") && (
                     <Button variant="ghost" onClick={() => update(j, { status: "canceled" })}>
