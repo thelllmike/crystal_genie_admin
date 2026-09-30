@@ -3,9 +3,13 @@ import { createClient } from "@supabase/supabase-js";
 // Browser-side client. Everything this panel can read or change is decided by
 // the database (RLS policies + is_admin() checks in backend/admin_dashboard.sql),
 // so a non-admin who logs in here simply gets nothing.
+//
+// Defaults are the app's own project (the anon key is public, same as in the
+// Flutter app) so a host like Vercel builds even with no env vars set.
 export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ifrzpnhqjeczhrposdmw.supabase.co",
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmcnpwbmhxamVjemhycG9zZG13Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MDczNzMsImV4cCI6MjA5MDE4MzM3M30.D7f2mET_XMiIt6IgttH8D-mQVP6Z8Iy3eR2SuTcrZv8",
 );
 
 export type Crystal = {
