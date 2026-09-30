@@ -8,7 +8,7 @@ import { isAdmin, supabase } from "@/lib/supabase";
 
 const nav = [
   { href: "/orders", label: "Orders" },
-  { href: "/subscribers", label: "Subscribers" },
+  { href: "/subscribers", label: "Users & subscriptions" },
   { href: "/products", label: "Shop items" },
   { href: "/crystals", label: "Crystals" },
   { href: "/dataset", label: "Dataset" },

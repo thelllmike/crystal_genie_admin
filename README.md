@@ -14,6 +14,7 @@ In the Supabase SQL editor run, in order:
 2. `sql/admin_dashboard.sql` – lets admins edit crystals and read all orders/subscribers
 3. `sql/crystal_images.sql`, `sql/product_images.sql` – photo uploads
 4. `sql/training.sql` – Dataset + Training pages (labeling and model training)
+5. `sql/users_details.sql` – names, last active, scans and orders on the Users page
 
 Only accounts listed in `admin_users` can sign in; everyone else is rejected,
 and the database refuses their requests anyway.

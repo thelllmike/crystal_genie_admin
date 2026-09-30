@@ -53,6 +53,12 @@ export type Subscriber = {
   trial_ends_at: string | null;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
+  // From sql/users_details.sql; missing until it's run.
+  name?: string | null;
+  last_sign_in_at?: string | null;
+  scans?: number;
+  orders?: number;
+  spent?: number;
 };
 
 export async function isAdmin(): Promise<boolean> {
