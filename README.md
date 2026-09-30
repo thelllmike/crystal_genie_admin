@@ -3,7 +3,7 @@
 Web admin panel for the Crystal Genie app: orders (with shipping addresses),
 subscribers, shop items, the crystal library, and a labeling + training
 pipeline for the scanner's model (the trainer itself lives in the backend,
-`backend/trainer/`). It talks straight to the same
+`crystal_genie_backend/trainer/`). It talks straight to the same
 Supabase project as the mobile app.
 
 ## One-time setup
