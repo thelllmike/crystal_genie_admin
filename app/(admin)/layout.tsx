@@ -11,6 +11,8 @@ const nav = [
   { href: "/subscribers", label: "Subscribers" },
   { href: "/products", label: "Shop items" },
   { href: "/crystals", label: "Crystals" },
+  { href: "/dataset", label: "Dataset" },
+  { href: "/training", label: "Training" },
 ];
 
 export default function AdminLayout({ children }: LayoutProps<"/">) {
