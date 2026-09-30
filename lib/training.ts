@@ -5,32 +5,43 @@ export const TRAINING_BUCKET = "training-images"; // only photos uploaded before
 // The API on the VPS stores new training photos on its own disk.
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "https://srv1866657.hstgr.cloud").replace(/\/$/, "");
 
+/** A box around one crystal; x/y = top-left corner, all 0..1 of the photo. */
+export type Box = { label: string; x: number; y: number; w: number; h: number };
+
 export type TrainingImage = {
   id: number;
   storage_path: string;
   label: string | null;
   stored_on: "vps" | "supabase";
+  /** null = not boxed yet; [] = checked and has no crystals */
+  boxes: Box[] | null;
   created_at: string;
 };
 
-export const IMAGE_COLUMNS = "id, storage_path, label, stored_on, created_at";
+export const IMAGE_COLUMNS = "id, storage_path, label, stored_on, boxes, created_at";
 
 export type TrainingStats = {
   unlabeled: number;
   labeled: number;
   classes: { label: string; count: number }[];
+  boxed: number;
+  unboxed: number;
+  /** count = photos containing the crystal, boxes = total boxes */
+  box_classes: { label: string; count: number; boxes: number }[];
 };
+
+export type TrainTask = "classify" | "detect";
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";
 
 export type TrainingJob = {
   id: number;
   status: JobStatus;
-  params: { epochs?: number; imgsz?: number; base_model?: string; min_images?: number };
+  params: { task?: TrainTask; epochs?: number; imgsz?: number; base_model?: string; min_images?: number };
   classes: string[] | null;
   image_count: number | null;
   progress: { epoch?: number; epochs?: number } | null;
-  metrics: { top1?: number; top5?: number } | null;
+  metrics: { top1?: number; top5?: number; map50?: number; map?: number } | null;
   log: string | null;
   error: string | null;
   model_path: string | null;
@@ -100,6 +111,28 @@ export async function setLabel(ids: number[], label: string | null) {
   );
 }
 
+/**
+ * Saves the boxes for one photo. If every box is the same crystal and the
+ * photo has no label yet, it gets that label too, so it also counts for
+ * whole-photo (classification) training.
+ */
+export async function saveBoxes(image: Pick<TrainingImage, "id" | "label">, boxes: Box[]) {
+  const labels = [...new Set(boxes.map((b) => b.label))];
+  const patch: Record<string, unknown> = { boxes };
+  if (!image.label && labels.length === 1) {
+    const { data } = await supabase.auth.getUser();
+    Object.assign(patch, { label: labels[0], labeled_at: new Date().toISOString(), labeled_by: data.user?.id });
+  }
+  check(await supabase.from("training_images").update(patch).eq("id", image.id));
+}
+
+/** Stable, distinct colour per crystal name. */
+export function labelColor(label: string, alpha = 1) {
+  let h = 0;
+  for (const c of label) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h} 75% 45% / ${alpha})`;
+}
+
 export async function deleteImages(images: Pick<TrainingImage, "id">[]) {
   await api("/admin/training-images/delete", { ids: images.map((i) => i.id) });
 }
@@ -134,7 +167,7 @@ export async function uploadTrainingImage(file: File, label: string | null) {
 
 /** Hint appended to errors caused by training.sql not having been run. */
 export function explainSetup(message: string) {
-  return /training_|stored_on|bucket|relation|function/i.test(message)
+  return /training_|stored_on|boxes|bucket|relation|function/i.test(message)
     ? `${message} — run sql/training.sql in the Supabase SQL editor first.`
     : message;
 }

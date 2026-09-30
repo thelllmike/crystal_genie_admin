@@ -127,7 +127,7 @@ function TestModel() {
             {jobs.data?.map((j) => (
               <option key={j.id} value={j.id}>
                 Training run #{j.id}
-                {j.metrics?.top1 != null ? ` · ${pct(j.metrics.top1)}` : ""}
+                {j.metrics?.map50 != null ? ` · boxes ${pct(j.metrics.map50)}` : j.metrics?.top1 != null ? ` · ${pct(j.metrics.top1)}` : ""}
                 {j.classes ? ` · ${j.classes.length} crystals` : ""}
                 {j.deployed_at ? " · deployed" : ""}
               </option>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button, Empty, ErrorBox, Field, Loading, PageHeader, Pill, Stat, inputClass } from "@/components/ui";
 import { check, dateTime, supabase } from "@/lib/supabase";
-import { explainSetup, fetchStats, type JobStatus, type TrainingJob } from "@/lib/training";
+import { explainSetup, fetchStats, type JobStatus, type TrainTask, type TrainingJob } from "@/lib/training";
 import { useLoad } from "@/lib/useLoad";
 
 const fetchJobs = async () =>
@@ -21,12 +21,27 @@ const statusPill: Record<JobStatus, { color: "green" | "amber" | "blue" | "gray"
 
 const pct = (n?: number) => (n == null ? "—" : `${(n * 100).toFixed(1)}%`);
 
+/** Headline score: accuracy for whole-photo models, mAP50 for box models. */
+const score = (j: Pick<TrainingJob, "metrics">) => pct(j.metrics?.map50 ?? j.metrics?.top1);
+
+const MODELS: Record<TrainTask, { value: string; label: string }[]> = {
+  classify: [
+    { value: "yolo11n-cls.pt", label: "Nano — fastest, fine for a CPU server" },
+    { value: "yolo11s-cls.pt", label: "Small — more accurate, ~3× slower" },
+  ],
+  detect: [
+    { value: "yolo11n.pt", label: "Nano — fastest" },
+    { value: "yolo11s.pt", label: "Small — same size as the original model, ~3× slower" },
+  ],
+};
+
 export default function TrainingPage() {
   const stats = useLoad(fetchStats);
   const jobs = useLoad(fetchJobs);
   const [minImages, setMinImages] = useState(20);
   const [epochs, setEpochs] = useState(30);
-  const [baseModel, setBaseModel] = useState("yolo11n-cls.pt");
+  const [task, setTask] = useState<TrainTask>("detect");
+  const [baseModel, setBaseModel] = useState(MODELS.detect[0].value);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -47,9 +62,11 @@ export default function TrainingPage() {
   if (stats.error || jobs.error) return <ErrorBox message={explainSetup(stats.error || jobs.error)} />;
   if (!stats.data || !jobs.data) return <Loading />;
 
-  const classes = stats.data.classes;
+  const detect = task === "detect";
+  const classes = detect ? (stats.data.box_classes ?? []) : stats.data.classes;
   const eligible = classes.filter((c) => c.count >= minImages);
   const eligibleImages = eligible.reduce((s, c) => s + c.count, 0);
+  const minClasses = detect ? 1 : 2; // a detector can find a single kind of thing
   const maxCount = Math.max(1, ...classes.map((c) => c.count));
   const live = jobs.data
     .filter((j) => j.deployed_at)
@@ -61,7 +78,7 @@ export default function TrainingPage() {
     try {
       check(
         await supabase.from("training_jobs").insert({
-          params: { epochs, imgsz: 224, base_model: baseModel, min_images: minImages },
+          params: { task, epochs, imgsz: detect ? 640 : 224, base_model: baseModel, min_images: minImages },
         }),
       );
       jobs.reload();
@@ -113,14 +130,14 @@ export default function TrainingPage() {
         <Stat label="Crystals with photos" value={classes.length} />
         <Stat
           label="Live model"
-          value={live ? <span title={dateTime(live.deployed_at!)}>#{live.id} · {pct(live.metrics?.top1)}</span> : "Original"}
+          value={live ? <span title={dateTime(live.deployed_at!)}>#{live.id} · {score(live)}</span> : "Original"}
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Photos per crystal */}
         <section className="rounded-xl border border-black/5 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 font-semibold">Photos per crystal</h2>
+          <h2 className="mb-3 font-semibold">{detect ? "Photos with boxes, per crystal" : "Labeled photos per crystal"}</h2>
           {classes.length === 0 ? (
             <Empty>
               No labeled photos yet. <Link href="/dataset" className="text-brand-dark underline">Upload and label some</Link>.
@@ -151,6 +168,20 @@ export default function TrainingPage() {
         {/* New training run */}
         <section className="space-y-4 rounded-xl border border-black/5 bg-white p-4 shadow-sm">
           <h2 className="font-semibold">Train a new model</h2>
+          <Field label="What to learn from">
+            <select
+              className={inputClass}
+              value={task}
+              onChange={(e) => {
+                const t = e.target.value as TrainTask;
+                setTask(t);
+                setBaseModel(MODELS[t][0].value);
+              }}
+            >
+              <option value="detect">Boxes — finds and outlines each crystal (like the original model)</option>
+              <option value="classify">Whole-photo labels — names the one crystal in the photo</option>
+            </select>
+          </Field>
           <Field label="Minimum photos per crystal" hint="Crystals with fewer photos are left out of this model.">
             <input className={inputClass} type="number" min={5} value={minImages} onChange={(e) => setMinImages(Math.max(5, Number(e.target.value) || 5))} />
           </Field>
@@ -159,17 +190,31 @@ export default function TrainingPage() {
           </Field>
           <Field label="Model size">
             <select className={inputClass} value={baseModel} onChange={(e) => setBaseModel(e.target.value)}>
-              <option value="yolo11n-cls.pt">Nano — fastest, fine for a CPU server</option>
-              <option value="yolo11s-cls.pt">Small — more accurate, ~3× slower</option>
+              {MODELS[task].map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
             </select>
           </Field>
           <p className="text-sm text-neutral-600">
-            Will train on <b>{eligible.length}</b> crystals · <b>{eligibleImages}</b> photos
+            Will train on <b>{eligible.length}</b> crystals · {detect ? "about " : ""}
+            <b>{eligibleImages}</b> photos
             {eligible.length > 0 && <> (20% held back to measure accuracy)</>}.
           </p>
+          {detect && (
+            <p className="text-xs text-neutral-500">
+              Box models train on 640px photos: much slower than whole-photo models on the 1-core server. Start with few
+              epochs, or run the trainer on a faster machine.
+            </p>
+          )}
           {formError && <p className="text-sm text-red-700">{formError}</p>}
-          <Button className="w-full" disabled={busy || active || eligible.length < 2} onClick={startTraining}>
-            {active ? "A job is already running" : eligible.length < 2 ? "Need at least 2 crystals" : "Start training"}
+          <Button className="w-full" disabled={busy || active || eligible.length < minClasses} onClick={startTraining}>
+            {active
+              ? "A job is already running"
+              : eligible.length < minClasses
+                ? `Need ${minClasses === 1 ? "a crystal" : "at least 2 crystals"} with ${minImages}+ photos`
+                : "Start training"}
           </Button>
         </section>
       </div>
@@ -200,13 +245,22 @@ export default function TrainingPage() {
                   {isLive && <Pill color="green">● Live in app</Pill>}
                   <span className="text-sm text-neutral-500">{dateTime(j.created_at)}</span>
                   <span className="text-sm text-neutral-500">
-                    {j.params.base_model?.replace(".pt", "")} · {j.params.epochs} epochs
+                    {j.params.task === "detect" ? "Boxes" : "Whole photo"} · {j.params.base_model?.replace(".pt", "")} · {j.params.epochs} epochs
                     {j.classes && ` · ${j.classes.length} crystals · ${j.image_count} photos`}
                   </span>
                   <span className="ml-auto" />
                   {j.status === "succeeded" && (
                     <span className="text-sm">
-                      Accuracy <b>{pct(j.metrics?.top1)}</b> <span className="text-neutral-500">(top-5 {pct(j.metrics?.top5)})</span>
+                      {j.metrics?.map50 != null ? (
+                        <>
+                          Box accuracy (mAP50) <b>{pct(j.metrics.map50)}</b>{" "}
+                          <span className="text-neutral-500">(strict mAP {pct(j.metrics.map)})</span>
+                        </>
+                      ) : (
+                        <>
+                          Accuracy <b>{pct(j.metrics?.top1)}</b> <span className="text-neutral-500">(top-5 {pct(j.metrics?.top5)})</span>
+                        </>
+                      )}
                     </span>
                   )}
                   {j.status === "succeeded" && (

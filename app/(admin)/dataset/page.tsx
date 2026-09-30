@@ -2,23 +2,26 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BoxEditor } from "@/components/BoxEditor";
 import { CrystalPicker } from "@/components/CrystalPicker";
 import { Button, Empty, ErrorBox, Loading, Modal, PageHeader, Pill } from "@/components/ui";
 import { check, supabase } from "@/lib/supabase";
 import {
   deleteImages,
   explainSetup,
+  saveBoxes,
   fetchCrystalNames,
   fetchStats,
   IMAGE_COLUMNS,
   imageUrl,
   setLabel,
   uploadTrainingImage,
+  type Box,
   type TrainingImage,
 } from "@/lib/training";
 import { useLoad } from "@/lib/useLoad";
 
-type Tab = "upload" | "label" | "browse";
+type Tab = "upload" | "label" | "boxes" | "browse";
 
 export default function DatasetPage() {
   const [tab, setTab] = useState<Tab>("label");
@@ -30,6 +33,7 @@ export default function DatasetPage() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "label", label: `Label (${stats.data.unlabeled})` },
+    { key: "boxes", label: `Draw boxes (${stats.data.unboxed ?? 0})` },
     { key: "upload", label: "Upload" },
     { key: "browse", label: "Browse" },
   ];
@@ -59,6 +63,7 @@ export default function DatasetPage() {
       </div>
       {tab === "upload" && <UploadTab names={names.data} onUploaded={stats.reload} goLabel={() => setTab("label")} />}
       {tab === "label" && <LabelTab names={names.data} onChange={stats.reload} goUpload={() => setTab("upload")} />}
+      {tab === "boxes" && <BoxesTab names={names.data} onChange={stats.reload} goUpload={() => setTab("upload")} />}
       {tab === "browse" && <BrowseTab names={names.data} classes={stats.data.classes} onChange={stats.reload} />}
     </>
   );
@@ -382,6 +387,128 @@ function LabelTab({ names, onChange, goUpload }: { names: string[]; onChange: ()
 // Browse / fix labels
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Draw boxes (detection labeling)
+// ---------------------------------------------------------------------------
+
+async function fetchUnboxed(exclude: number[]): Promise<TrainingImage[]> {
+  let q = supabase.from("training_images").select(IMAGE_COLUMNS).is("boxes", null).order("created_at").limit(BATCH);
+  if (exclude.length) q = q.not("id", "in", `(${exclude.join(",")})`);
+  return (check(await q) ?? []) as TrainingImage[];
+}
+
+/** Keeps the crystals used most recently first, max 9 (the number keys). */
+function useRecent() {
+  const [recent, setRecent] = useState<string[]>([]);
+  const use = useCallback((label: string) => setRecent((r) => [label, ...r.filter((x) => x !== label)].slice(0, 9)), []);
+  return [recent, use] as const;
+}
+
+function BoxesTab({ names, onChange, goUpload }: { names: string[]; onChange: () => void; goUpload: () => void }) {
+  const [queue, setQueue] = useState<TrainingImage[] | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [count, setCount] = useState(0);
+  const [recent, rememberLabel] = useRecent();
+  const skipped = useRef<number[]>([]);
+
+  useEffect(() => {
+    fetchUnboxed([]).then(setQueue, (e: Error) => setError(explainSetup(e.message)));
+  }, []);
+
+  async function next(rest: TrainingImage[]) {
+    setQueue(rest);
+    if (rest.length <= 5) {
+      const more = await fetchUnboxed([...rest.map((i) => i.id), ...skipped.current]);
+      setQueue((q) => {
+        const have = new Set((q ?? []).map((i) => i.id));
+        return [...(q ?? []), ...more.filter((i) => !have.has(i.id))];
+      });
+    }
+  }
+
+  const current = queue?.[0];
+
+  async function save(boxes: Box[]) {
+    if (!current) return;
+    setBusy(true);
+    try {
+      await saveBoxes(current, boxes);
+      setCount((c) => c + 1);
+      onChange();
+      await next((queue ?? []).slice(1));
+      setError("");
+    } catch (e) {
+      setError(explainSetup((e as Error).message));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!current || !confirm("Delete this photo? This can't be undone.")) return;
+    setBusy(true);
+    try {
+      await deleteImages([current]);
+      onChange();
+      await next((queue ?? []).slice(1));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error && !queue) return <ErrorBox message={error} />;
+  if (!queue) return <Loading />;
+  if (!current) {
+    return (
+      <Empty>
+        <p className="font-medium text-neutral-700">Every photo has its boxes 🎉</p>
+        {count > 0 && <p className="mt-1">You boxed {count} photos this session.</p>}
+        <div className="mt-4 flex justify-center gap-2">
+          <Button variant="ghost" onClick={goUpload}>
+            Upload more
+          </Button>
+          <Link href="/training">
+            <Button>Go to training →</Button>
+          </Link>
+        </div>
+      </Empty>
+    );
+  }
+
+  return (
+    <>
+      <p className="mb-3 text-sm text-neutral-500">
+        {count} boxed this session · {queue.length}
+        {queue.length >= BATCH ? "+" : ""} waiting
+      </p>
+      {error && <p className="mb-3 text-sm text-red-700">{error}</p>}
+      <BoxEditor
+        key={current.id}
+        image={current}
+        names={names}
+        recent={recent}
+        onUseLabel={rememberLabel}
+        onSave={save}
+        onSkip={() => {
+          skipped.current.push(current.id);
+          next((queue ?? []).slice(1));
+        }}
+        onDelete={remove}
+        busy={busy}
+      />
+      {queue[1] && (
+        // eslint-disable-next-line @next/next/no-img-element -- preload the next photo
+        <img src={imageUrl(queue[1])} alt="" className="hidden" />
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
 const PAGE = 60;
 const UNLABELED = "__unlabeled__";
 
@@ -399,6 +526,8 @@ function BrowseTab({
   const [hasMore, setHasMore] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [relabeling, setRelabeling] = useState(false);
+  const [boxing, setBoxing] = useState<TrainingImage | null>(null);
+  const [recent, rememberLabel] = useRecent();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -500,6 +629,11 @@ function BrowseTab({
             <Button disabled={busy} onClick={() => setRelabeling(true)}>
               Change label…
             </Button>
+            {selected.size === 1 && (
+              <Button variant="ghost" disabled={busy} onClick={() => setBoxing(images?.find((i) => selected.has(i.id)) ?? null)}>
+                Draw boxes…
+              </Button>
+            )}
             <Button variant="danger" disabled={busy} onClick={removeSelected}>
               Delete
             </Button>
@@ -533,6 +667,11 @@ function BrowseTab({
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- Supabase storage */}
                   <img src={imageUrl(img)} alt="" loading="lazy" className={`h-full w-full object-cover ${on ? "opacity-70" : ""}`} />
+                  {img.boxes && (
+                    <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 text-[10px] font-medium text-white">
+                      {img.boxes.length} box{img.boxes.length === 1 ? "" : "es"}
+                    </span>
+                  )}
                   {on && (
                     <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand text-xs text-white">
                       ✓
@@ -550,6 +689,41 @@ function BrowseTab({
             </div>
           )}
         </>
+      )}
+
+      {boxing && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-neutral-50 p-4 md:p-8">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Draw boxes</h2>
+            <Button variant="ghost" onClick={() => setBoxing(null)}>
+              Close
+            </Button>
+          </div>
+          <BoxEditor
+            key={boxing.id}
+            image={boxing}
+            names={names}
+            recent={recent}
+            onUseLabel={rememberLabel}
+            saveLabel="Save"
+            busy={busy}
+            onSave={async (boxes) => {
+              setBusy(true);
+              try {
+                await saveBoxes(boxing, boxes);
+                setImages((imgs) => imgs?.map((i) => (i.id === boxing.id ? { ...i, boxes } : i)) ?? null);
+                setBoxing(null);
+                setSelected(new Set());
+                onChange();
+              } catch (e) {
+                setError(explainSetup((e as Error).message));
+                setBoxing(null);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+        </div>
       )}
 
       {relabeling && (
