@@ -10,6 +10,7 @@ import {
   explainSetup,
   fetchCrystalNames,
   fetchStats,
+  IMAGE_COLUMNS,
   imageUrl,
   setLabel,
   uploadTrainingImage,
@@ -187,7 +188,7 @@ const BATCH = 40;
 async function fetchUnlabeled(exclude: number[]): Promise<TrainingImage[]> {
   let q = supabase
     .from("training_images")
-    .select("id, storage_path, label, created_at")
+    .select(IMAGE_COLUMNS)
     .is("label", null)
     .order("created_at")
     .limit(BATCH);
@@ -311,11 +312,11 @@ function LabelTab({ names, onChange, goUpload }: { names: string[]; onChange: ()
       <div>
         <div className="flex aspect-square max-h-[70vh] w-full items-center justify-center overflow-hidden rounded-2xl bg-neutral-900">
           {/* eslint-disable-next-line @next/next/no-img-element -- Supabase storage */}
-          <img key={current.id} src={imageUrl(current.storage_path)} alt="Photo to label" className="max-h-full max-w-full object-contain" />
+          <img key={current.id} src={imageUrl(current)} alt="Photo to label" className="max-h-full max-w-full object-contain" />
         </div>
         {queue[1] && (
           // eslint-disable-next-line @next/next/no-img-element -- preload the next photo
-          <img src={imageUrl(queue[1].storage_path)} alt="" className="hidden" />
+          <img src={imageUrl(queue[1])} alt="" className="hidden" />
         )}
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-neutral-500">
           <span>{count} labeled this session</span>
@@ -405,7 +406,7 @@ function BrowseTab({
     async (offset: number) => {
       let q = supabase
         .from("training_images")
-        .select("id, storage_path, label, created_at")
+        .select(IMAGE_COLUMNS)
         .order("created_at", { ascending: false })
         .range(offset, offset + PAGE - 1);
       q = filter === UNLABELED ? q.is("label", null) : q.eq("label", filter);
@@ -531,7 +532,7 @@ function BrowseTab({
                   className={`relative aspect-square overflow-hidden rounded-lg ring-2 ${on ? "ring-brand" : "ring-transparent"}`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- Supabase storage */}
-                  <img src={imageUrl(img.storage_path)} alt="" loading="lazy" className={`h-full w-full object-cover ${on ? "opacity-70" : ""}`} />
+                  <img src={imageUrl(img)} alt="" loading="lazy" className={`h-full w-full object-cover ${on ? "opacity-70" : ""}`} />
                   {on && (
                     <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-brand text-xs text-white">
                       ✓

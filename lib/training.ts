@@ -1,13 +1,19 @@
 import { check, supabase } from "@/lib/supabase";
 
-export const TRAINING_BUCKET = "training-images";
+export const TRAINING_BUCKET = "training-images"; // only photos uploaded before the move to the VPS
+
+// The API on the VPS stores new training photos on its own disk.
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "https://srv1866657.hstgr.cloud").replace(/\/$/, "");
 
 export type TrainingImage = {
   id: number;
   storage_path: string;
   label: string | null;
+  stored_on: "vps" | "supabase";
   created_at: string;
 };
+
+export const IMAGE_COLUMNS = "id, storage_path, label, stored_on, created_at";
 
 export type TrainingStats = {
   unlabeled: number;
@@ -34,7 +40,34 @@ export type TrainingJob = {
   deployed_at: string | null;
 };
 
-export const imageUrl = (path: string) => supabase.storage.from(TRAINING_BUCKET).getPublicUrl(path).data.publicUrl;
+export const imageUrl = (img: Pick<TrainingImage, "storage_path" | "stored_on">) =>
+  img.stored_on === "vps"
+    ? `${API_URL}/training-images/${img.storage_path}`
+    : supabase.storage.from(TRAINING_BUCKET).getPublicUrl(img.storage_path).data.publicUrl;
+
+/** Calls an admin endpoint on the VPS API with the signed-in admin's token. */
+async function api(path: string, body: FormData | object) {
+  const { data } = await supabase.auth.getSession();
+  const isForm = body instanceof FormData;
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${data.session?.access_token ?? ""}`,
+        ...(isForm ? {} : { "Content-Type": "application/json" }),
+      },
+      body: isForm ? body : JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("Could not reach the server (VPS). Is the API running and updated?");
+  }
+  if (!res.ok) {
+    const detail = await res.json().then((j) => j.detail, () => null);
+    throw new Error(typeof detail === "string" ? detail : `Server error ${res.status}`);
+  }
+  return res.json();
+}
 
 /** Every crystal name, for the label picker (labels must match crystal names). */
 export async function fetchCrystalNames(): Promise<string[]> {
@@ -67,18 +100,8 @@ export async function setLabel(ids: number[], label: string | null) {
   );
 }
 
-export async function deleteImages(images: Pick<TrainingImage, "id" | "storage_path">[]) {
-  check(
-    await supabase
-      .from("training_images")
-      .delete()
-      .in(
-        "id",
-        images.map((i) => i.id),
-      ),
-  );
-  // Best effort: an orphaned file only costs storage, never breaks training.
-  await supabase.storage.from(TRAINING_BUCKET).remove(images.map((i) => i.storage_path));
+export async function deleteImages(images: Pick<TrainingImage, "id">[]) {
+  await api("/admin/training-images/delete", { ids: images.map((i) => i.id) });
 }
 
 /**
@@ -100,26 +123,18 @@ async function shrink(file: File): Promise<Blob> {
   }
 }
 
-/** Uploads one photo and records it, optionally already labeled. */
+/** Uploads one photo to the VPS and records it, optionally already labeled. */
 export async function uploadTrainingImage(file: File, label: string | null) {
   const blob = await shrink(file);
-  const ext = blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : "jpg";
-  const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${ext}`;
-  check(await supabase.storage.from(TRAINING_BUCKET).upload(path, blob, { contentType: blob.type || "image/jpeg" }));
-  const { data } = await supabase.auth.getUser();
-  check(
-    await supabase.from("training_images").insert({
-      storage_path: path,
-      label,
-      labeled_at: label ? new Date().toISOString() : null,
-      labeled_by: label ? data.user?.id : null,
-    }),
-  );
+  const form = new FormData();
+  form.append("file", blob, file.name);
+  if (label) form.append("label", label);
+  await api("/admin/training-images", form);
 }
 
 /** Hint appended to errors caused by training.sql not having been run. */
 export function explainSetup(message: string) {
-  return /training_|bucket|relation|function/i.test(message)
+  return /training_|stored_on|bucket|relation|function/i.test(message)
     ? `${message} — run sql/training.sql in the Supabase SQL editor first.`
     : message;
 }

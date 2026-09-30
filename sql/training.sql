@@ -9,12 +9,16 @@
 -- ---------- Photos to train on ----------
 create table if not exists training_images (
   id bigint generated always as identity primary key,
-  storage_path text not null unique,   -- path inside the training-images bucket
+  storage_path text not null unique,   -- path on the VPS or in the bucket (see stored_on)
   label text,                          -- crystal name; null = not labeled yet
   created_at timestamptz not null default now(),
   labeled_at timestamptz,
   labeled_by uuid references auth.users on delete set null
 );
+-- Where the file lives: 'vps' = the API server's disk (current uploads),
+-- 'supabase' = the training-images bucket (photos uploaded before the move).
+alter table training_images add column if not exists stored_on text not null default 'supabase';
+
 create index if not exists training_images_label_idx on training_images (label);
 create index if not exists training_images_unlabeled_idx
   on training_images (created_at) where label is null;
