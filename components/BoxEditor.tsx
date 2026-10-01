@@ -77,8 +77,8 @@ export function BoxEditor({
   });
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-      <div>
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0">
         {/* Crystal chips, like Label Studio's label bar */}
         <div className="mb-3 flex flex-wrap gap-2">
           {chips.length === 0 && <span className="text-sm text-neutral-500">Pick a crystal on the right to start drawing →</span>}

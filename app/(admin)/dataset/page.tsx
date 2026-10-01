@@ -113,7 +113,7 @@ function UploadTab({ names, onUploaded, goLabel }: { names: string[]; onUploaded
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <label
         onDragOver={(e) => {
           e.preventDefault();
@@ -324,7 +324,7 @@ function LabelTab({ names, onChange, goUpload }: { names: string[]; onChange: ()
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div>
         <div className="flex aspect-square max-h-[70vh] w-full items-center justify-center overflow-hidden rounded-2xl bg-neutral-900">
           {/* eslint-disable-next-line @next/next/no-img-element -- Supabase storage */}

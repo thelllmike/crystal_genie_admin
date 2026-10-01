@@ -38,6 +38,7 @@ export function CrystalPicker({
 }) {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState<string | null>(null); // open "new label" form
   const [error, setError] = useState("");
   const createLabel = useContext(NewLabelContext);
 
@@ -59,8 +60,16 @@ export function CrystalPicker({
     setError("");
   }
 
-  async function add() {
-    if (!createLabel || !canAdd || adding) return;
+  async function add(raw: string = query) {
+    const typed = clean(raw);
+    if (!createLabel || !typed || adding) return;
+    const existing = names.find((n) => n.toLowerCase() === typed.toLowerCase());
+    if (existing) {
+      // Already a label: just use it instead of creating a duplicate.
+      pick(existing);
+      setNewName(null);
+      return;
+    }
     if (typed.length > 80) {
       setError("Keep the name under 80 characters.");
       return;
@@ -70,6 +79,7 @@ export function CrystalPicker({
     try {
       await createLabel(typed);
       pick(typed);
+      setNewName(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -79,6 +89,58 @@ export function CrystalPicker({
 
   return (
     <div>
+      {createLabel && (
+        <div className="mb-2">
+          {newName === null ? (
+            <button
+              type="button"
+              onClick={() => setNewName("")}
+              className="w-full rounded-lg border border-dashed border-brand px-3 py-1.5 text-sm font-medium text-brand-dark hover:bg-brand-soft"
+            >
+              + Add a new label
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                className={inputClass}
+                placeholder="New label name, e.g. Blue Calcite"
+                value={newName}
+                autoFocus
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  setError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    add(newName);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setNewName(null);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => add(newName)}
+                disabled={adding || !clean(newName)}
+                className="rounded-lg bg-brand px-3 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
+              >
+                {adding ? "…" : "Add"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewName(null)}
+                className="px-1 text-lg leading-none text-neutral-400 hover:text-neutral-700"
+                aria-label="Cancel"
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <input
         ref={inputRef}
         className={inputClass}
@@ -102,7 +164,7 @@ export function CrystalPicker({
         {canAdd && (
           <button
             type="button"
-            onClick={add}
+            onClick={() => add()}
             disabled={adding}
             className={`block w-full border-b border-neutral-100 px-3 py-2 text-left text-sm font-medium text-brand-dark hover:bg-brand-soft ${
               matches.length === 0 ? "bg-brand-soft" : ""
