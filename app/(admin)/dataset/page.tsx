@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BoxEditor } from "@/components/BoxEditor";
-import { CrystalPicker } from "@/components/CrystalPicker";
+import { CrystalPicker, NewLabelContext } from "@/components/CrystalPicker";
 import { Button, Empty, ErrorBox, Loading, Modal, PageHeader, Pill } from "@/components/ui";
 import { check, supabase } from "@/lib/supabase";
 import {
   deleteImages,
+  createCrystal,
   explainSetup,
   saveBoxes,
   fetchCrystalNames,
@@ -27,6 +28,16 @@ export default function DatasetPage() {
   const [tab, setTab] = useState<Tab>("label");
   const names = useLoad(fetchCrystalNames);
   const stats = useLoad(fetchStats);
+  const setNames = names.setData;
+
+  // "+ Add … as a new label" in any crystal search box on this page.
+  const addLabel = useCallback(
+    async (name: string) => {
+      await createCrystal(name);
+      setNames((list) => [...(list ?? []), name].sort((a, b) => a.localeCompare(b)));
+    },
+    [setNames],
+  );
 
   if (names.error || stats.error) return <ErrorBox message={explainSetup(names.error || stats.error)} />;
   if (!names.data || !stats.data) return <Loading />;
@@ -39,7 +50,7 @@ export default function DatasetPage() {
   ];
 
   return (
-    <>
+    <NewLabelContext.Provider value={addLabel}>
       <PageHeader
         title="Dataset"
         action={
@@ -65,7 +76,7 @@ export default function DatasetPage() {
       {tab === "label" && <LabelTab names={names.data} onChange={stats.reload} goUpload={() => setTab("upload")} />}
       {tab === "boxes" && <BoxesTab names={names.data} onChange={stats.reload} goUpload={() => setTab("upload")} />}
       {tab === "browse" && <BrowseTab names={names.data} classes={stats.data.classes} onChange={stats.reload} />}
-    </>
+    </NewLabelContext.Provider>
   );
 }
 

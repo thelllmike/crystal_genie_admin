@@ -93,6 +93,14 @@ export async function fetchCrystalNames(): Promise<string[]> {
   return names;
 }
 
+/**
+ * Adds a new crystal (label) with just a name; details can be filled in later
+ * on the Crystals page. Labels must be crystal names so scans can find them.
+ */
+export async function createCrystal(name: string) {
+  check(await supabase.from("crystals").insert({ name }));
+}
+
 export async function fetchStats(): Promise<TrainingStats> {
   return check(await supabase.rpc("training_stats")) as TrainingStats;
 }
